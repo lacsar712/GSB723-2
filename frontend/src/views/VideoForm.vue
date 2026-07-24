@@ -54,6 +54,20 @@
 					</el-radio-group>
 				</el-form-item>
 
+				<el-form-item label="设为推荐" prop="is_recommended">
+					<el-switch
+						v-model="form.is_recommended"
+						:active-value="1"
+						:inactive-value="0"
+						active-text="推荐"
+						inactive-text="普通"
+					/>
+					<div v-if="form.is_recommended === 1 && form.status === 1" class="recommend-tip">
+						<el-icon color="#f59e0b"><Warning /></el-icon>
+						<span>推荐且上架的影片最多 8 部，超出时将无法保存</span>
+					</div>
+				</el-form-item>
+
 				<el-form-item>
 					<el-button type="primary" :loading="loading" @click="handleSubmit">
 						{{ isEdit ? '保存' : '提交' }}
@@ -69,7 +83,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Warning } from '@element-plus/icons-vue'
 import { getVideoDetail, createVideo, updateVideo } from '../api'
 
 const router = useRouter()
@@ -78,7 +92,6 @@ const formRef = ref(null)
 const loading = ref(false)
 const isEdit = ref(false)
 
-// 上传配置
 const uploadAction = computed(() => {
 	const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 	return baseURL ? `${baseURL}/api/upload/cover` : '/api/upload/cover'
@@ -94,21 +107,18 @@ const form = reactive({
 	cover_url: '',
 	description: '',
 	status: 1,
+	is_recommended: 0
 })
 
-// 获取封面完整URL
 const getCoverUrl = (url) => {
 	if (!url) return ''
-	// 如果是完整URL，直接返回
 	if (url.startsWith('http://') || url.startsWith('https://')) {
 		return url
 	}
-	// 如果是相对路径，拼接API基础URL
 	const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 	return baseURL ? `${baseURL}${url}` : url
 }
 
-// 上传前验证
 const beforeUpload = (file) => {
 	const isImage = /^image\/(jpeg|jpg|png|gif|webp)$/.test(file.type)
 	const isLt5M = file.size / 1024 / 1024 < 5
@@ -124,7 +134,6 @@ const beforeUpload = (file) => {
 	return true
 }
 
-// 上传成功
 const handleUploadSuccess = (response) => {
 	if (response.code === 0) {
 		form.cover_url = response.data.url
@@ -134,7 +143,6 @@ const handleUploadSuccess = (response) => {
 	}
 }
 
-// 上传失败
 const handleUploadError = (error) => {
 	console.error('上传失败：', error)
 	ElMessage.error('上传失败，请重试')
@@ -157,9 +165,9 @@ const fetchDetail = async () => {
 	loading.value = true
 	try {
 		const res = await getVideoDetail(id)
-		// 确保 status 为数字类型，避免字符串 "1"/"0" 导致单选框不选中
 		const data = res.data
 		data.status = parseInt(data.status)
+		data.is_recommended = parseInt(data.is_recommended || 0)
 		Object.assign(form, data)
 	} catch (error) {
 		console.error('获取详情失败：', error)
@@ -187,7 +195,9 @@ const handleSubmit = async () => {
 			}
 			router.push('/videos')
 		} catch (error) {
-			console.error('提交失败：', error)
+			if (error && error.message) {
+				ElMessage.error(error.message)
+			}
 		} finally {
 			loading.value = false
 		}
@@ -260,6 +270,15 @@ onMounted(() => {
 	font-size: 12px;
 	color: #94a3b8;
 	line-height: 1.5;
+}
+
+.recommend-tip {
+	margin-top: 8px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: #d97706;
 }
 
 .video-form :deep(.el-button--primary) {
