@@ -20,6 +20,7 @@
               clearable
               style="width: 200px"
               @clear="handleQuery"
+              @keyup.enter="handleQuery"
             />
           </el-form-item>
           <el-form-item label="状态">
@@ -27,11 +28,23 @@
               v-model="queryForm.status"
               placeholder="请选择状态"
               clearable
-              style="width: 200px"
-              @clear="handleQuery"
+              style="width: 150px"
+              @change="handleQuery"
             >
               <el-option label="上架" value="1" />
               <el-option label="下架" value="0" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="播放源">
+            <el-select
+              v-model="queryForm.has_source"
+              placeholder="是否有播放源"
+              clearable
+              style="width: 150px"
+              @change="handleQuery"
+            >
+              <el-option label="有播放源" value="1" />
+              <el-option label="无播放源" value="0" />
             </el-select>
           </el-form-item>
           <el-form-item>
@@ -41,10 +54,34 @@
         </el-form>
       </div>
 
-      <el-table :data="tableData" border stripe v-loading="loading">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="title" label="影片标题" min-width="200" />
-        <el-table-column prop="cover_url" label="封面" width="120">
+      <div class="batch-bar" v-if="selectedRows.length > 0">
+        <span class="batch-info">已选择 <strong>{{ selectedRows.length }}</strong> 项</span>
+        <el-button type="success" size="default" @click="handleBatchPublish">
+          <el-icon><Top /></el-icon>
+          批量上架
+        </el-button>
+        <el-button type="warning" size="default" @click="handleBatchUnpublish">
+          <el-icon><Bottom /></el-icon>
+          批量下架
+        </el-button>
+        <el-button type="danger" size="default" @click="handleBatchDelete">
+          <el-icon><Delete /></el-icon>
+          批量删除
+        </el-button>
+      </div>
+
+      <el-table
+        :data="tableData"
+        border
+        stripe
+        v-loading="loading"
+        @selection-change="handleSelectionChange"
+        row-key="id"
+      >
+        <el-table-column type="selection" width="50" />
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="title" label="影片标题" min-width="180" />
+        <el-table-column prop="cover_url" label="封面" width="100">
           <template #default="{ row }">
             <div v-if="row.cover_url" class="cover-wrapper" @click="handlePreview(getCoverUrl(row.cover_url))">
               <img
@@ -58,16 +95,34 @@
             <span v-else class="cover-empty">暂无</span>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="source_count" label="播放源数量" width="110" align="center">
+          <template #default="{ row }">
+            <el-button
+              type="primary"
+              link
+              :class="{ 'has-sources': row.source_count > 0 }"
+              @click="handleSources(row)"
+            >
+              {{ row.source_count }}
+            </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column prop="is_recommend" label="推荐" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.is_recommend == 1" type="warning" size="small">推荐</el-tag>
+            <span v-else style="color: #c0c4cc">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="status" label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.status == 1 ? 'success' : 'info'">
               {{ row.status == 1 ? '上架' : '下架' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column prop="updated_at" label="更新时间" width="170" />
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="handleEdit(row)">编辑</el-button>
             <el-button size="small" @click="handleSources(row)">播放源</el-button>
@@ -96,7 +151,6 @@
       </div>
     </el-card>
 
-    <!-- 图片预览对话框 -->
     <el-dialog v-model="showViewer" width="800px" :show-close="true">
       <img :src="previewUrl" style="width: 100%; display: block;" />
     </el-dialog>
@@ -104,71 +158,36 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { getVideoList, deleteVideo, updateVideoStatus } from '../api'
+import { Plus, Top, Bottom, Delete } from '@element-plus/icons-vue'
+import { useVideos } from '../composables/useVideos'
+import { useCoverUrl } from '../composables/useCoverUrl'
 
 const router = useRouter()
-const loading = ref(false)
-const tableData = ref([])
-const total = ref(0)
-const previewUrl = ref('')
 const showViewer = ref(false)
+const previewUrl = ref('')
 
-const queryForm = reactive({
-  page: 1,
-  page_size: 10,
-  keyword: '',
-  status: ''
-})
+const { getCoverUrl, handleImageError } = useCoverUrl()
 
-// 获取封面完整URL
-const getCoverUrl = (url) => {
-  if (!url) return ''
-  // 如果是完整URL，直接返回
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url
-  }
-  // 如果是相对路径，拼接API基础URL
-  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-  return baseURL ? `${baseURL}${url}` : url
-}
-
-const fetchData = async () => {
-  loading.value = true
-  try {
-    const res = await getVideoList(queryForm)
-    tableData.value = res.data.list
-    total.value = res.data.total
-  } catch (error) {
-    console.error('获取列表失败：', error)
-  } finally {
-    loading.value = false
-  }
-}
-
-const handleQuery = () => {
-  queryForm.page = 1
-  fetchData()
-}
-
-const handlePageChange = () => {
-  // 翻页时不重置页码，直接获取数据
-  fetchData()
-}
-
-const handleSizeChange = () => {
-  // 改变每页条数时重置到第一页
-  queryForm.page = 1
-  fetchData()
-}
-
-const handleReset = () => {
-  queryForm.keyword = ''
-  queryForm.status = ''
-  handleQuery()
-}
+const {
+  loading,
+  tableData,
+  total,
+  selectedRows,
+  queryForm,
+  fetchData,
+  handleQuery,
+  handleReset,
+  handlePageChange,
+  handleSizeChange,
+  handleSelectionChange,
+  handleToggleStatus,
+  handleDelete,
+  handleBatchPublish,
+  handleBatchUnpublish,
+  handleBatchDelete
+} = useVideos()
 
 const handleAdd = () => {
   router.push('/videos/new')
@@ -182,61 +201,9 @@ const handleSources = (row) => {
   router.push(`/videos/${row.id}/sources`)
 }
 
-const handleToggleStatus = async (row) => {
-  const newStatus = row.status == 1 ? 0 : 1
-  const action = newStatus == 1 ? '上架' : '下架'
-
-  console.log('当前状态:', row.status, '新状态:', newStatus, '操作:', action)
-
-  try {
-    await ElMessageBox.confirm(`确定要${action}该影片吗？`, '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-
-    console.log('开始调用API更新状态...')
-    const result = await updateVideoStatus(row.id, newStatus)
-    console.log('API调用成功:', result)
-
-    ElMessage.success(`${action}成功`)
-
-    console.log('刷新列表数据...')
-    await fetchData()
-    console.log('列表数据已刷新')
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error(`${action}失败：`, error)
-      ElMessage.error(`${action}失败：${error.message || '未知错误'}`)
-    }
-  }
-}
-
-const handleDelete = async (row) => {
-  try {
-    await ElMessageBox.confirm('确定要删除该影片吗？删除后将无法恢复！', '警告', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'error'
-    })
-
-    await deleteVideo(row.id)
-    ElMessage.success('删除成功')
-    fetchData()
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('删除失败：', error)
-    }
-  }
-}
-
 const handlePreview = (url) => {
   previewUrl.value = url
   showViewer.value = true
-}
-
-const handleImageError = (e) => {
-  e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23f5f5f5" width="100" height="100"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999"%3E加载失败%3C/text%3E%3C/svg%3E'
 }
 
 onMounted(() => {
@@ -264,7 +231,7 @@ onMounted(() => {
 }
 
 .filter-bar {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   padding: 16px 20px;
   background: #f8fafc;
   border-radius: 8px;
@@ -272,6 +239,28 @@ onMounted(() => {
 
 .filter-bar :deep(.el-form-item) {
   margin-bottom: 0;
+}
+
+.batch-bar {
+  margin-bottom: 16px;
+  padding: 12px 20px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-info {
+  font-size: 14px;
+  color: #1e40af;
+  margin-right: 8px;
+}
+
+.batch-info strong {
+  color: #2563eb;
+  font-size: 16px;
 }
 
 .pagination {
@@ -290,8 +279,8 @@ onMounted(() => {
 }
 
 .cover-image {
-  width: 80px;
-  height: 45px;
+  width: 70px;
+  height: 40px;
   border-radius: 6px;
   object-fit: cover;
   display: block;
@@ -299,14 +288,18 @@ onMounted(() => {
 
 .cover-empty {
   display: inline-flex;
-  width: 80px;
-  height: 45px;
+  width: 70px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   border-radius: 6px;
   background: #f0f0ff;
   color: #94a3b8;
   font-size: 12px;
+}
+
+.has-sources {
+  font-weight: 600;
 }
 
 .video-list :deep(.el-table) {
