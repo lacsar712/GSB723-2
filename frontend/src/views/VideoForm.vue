@@ -54,6 +54,17 @@
 					</el-radio-group>
 				</el-form-item>
 
+				<el-form-item label="设为推荐">
+					<el-switch
+						v-model="form.is_recommend"
+						:active-value="1"
+						:inactive-value="0"
+						active-text="是"
+						inactive-text="否"
+					/>
+					<div class="form-tip">开启后该影片将在首页推荐区展示（推荐且上架的影片不超过8部）</div>
+				</el-form-item>
+
 				<el-form-item>
 					<el-button type="primary" :loading="loading" @click="handleSubmit">
 						{{ isEdit ? '保存' : '提交' }}
@@ -71,6 +82,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { getVideoDetail, createVideo, updateVideo } from '../api'
+import { useCoverUrl } from '../composables/useCoverUrl'
 
 const router = useRouter()
 const route = useRoute()
@@ -78,7 +90,8 @@ const formRef = ref(null)
 const loading = ref(false)
 const isEdit = ref(false)
 
-// 上传配置
+const { getCoverUrl } = useCoverUrl()
+
 const uploadAction = computed(() => {
 	const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 	return baseURL ? `${baseURL}/api/upload/cover` : '/api/upload/cover'
@@ -94,21 +107,9 @@ const form = reactive({
 	cover_url: '',
 	description: '',
 	status: 1,
+	is_recommend: 0
 })
 
-// 获取封面完整URL
-const getCoverUrl = (url) => {
-	if (!url) return ''
-	// 如果是完整URL，直接返回
-	if (url.startsWith('http://') || url.startsWith('https://')) {
-		return url
-	}
-	// 如果是相对路径，拼接API基础URL
-	const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-	return baseURL ? `${baseURL}${url}` : url
-}
-
-// 上传前验证
 const beforeUpload = (file) => {
 	const isImage = /^image\/(jpeg|jpg|png|gif|webp)$/.test(file.type)
 	const isLt5M = file.size / 1024 / 1024 < 5
@@ -124,7 +125,6 @@ const beforeUpload = (file) => {
 	return true
 }
 
-// 上传成功
 const handleUploadSuccess = (response) => {
 	if (response.code === 0) {
 		form.cover_url = response.data.url
@@ -134,7 +134,6 @@ const handleUploadSuccess = (response) => {
 	}
 }
 
-// 上传失败
 const handleUploadError = (error) => {
 	console.error('上传失败：', error)
 	ElMessage.error('上传失败，请重试')
@@ -157,9 +156,9 @@ const fetchDetail = async () => {
 	loading.value = true
 	try {
 		const res = await getVideoDetail(id)
-		// 确保 status 为数字类型，避免字符串 "1"/"0" 导致单选框不选中
 		const data = res.data
 		data.status = parseInt(data.status)
+		data.is_recommend = parseInt(data.is_recommend) || 0
 		Object.assign(form, data)
 	} catch (error) {
 		console.error('获取详情失败：', error)
@@ -257,6 +256,13 @@ onMounted(() => {
 
 .upload-tip {
 	margin-top: 8px;
+	font-size: 12px;
+	color: #94a3b8;
+	line-height: 1.5;
+}
+
+.form-tip {
+	margin-top: 4px;
 	font-size: 12px;
 	color: #94a3b8;
 	line-height: 1.5;

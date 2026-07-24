@@ -76,6 +76,13 @@ try {
         exit;
     }
 
+    // 首页看板
+    if (strpos($path, 'dashboard') === 0) {
+        require __DIR__ . '/routes/dashboard.php';
+        handleDashboardRequest($path, $method);
+        exit;
+    }
+
     // 影片管理
     if (strpos($path, 'videos') === 0) {
         require __DIR__ . '/routes/videos.php';

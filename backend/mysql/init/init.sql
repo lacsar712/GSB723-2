@@ -32,9 +32,11 @@ CREATE TABLE IF NOT EXISTS video (
     cover_url VARCHAR(255) NOT NULL,
     description TEXT,
     status TINYINT NOT NULL DEFAULT 1 COMMENT '1上架 0下架',
+    is_recommend TINYINT NOT NULL DEFAULT 0 COMMENT '1推荐 0不推荐',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_status (status)
+    INDEX idx_status (status),
+    INDEX idx_recommend (is_recommend, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- 表4：video_source（播放源）

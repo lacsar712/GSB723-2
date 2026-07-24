@@ -24,6 +24,7 @@ export function createVideo(data) {
   formData.append('cover_url', data.cover_url)
   formData.append('description', data.description || '')
   formData.append('status', data.status)
+  formData.append('is_recommend', data.is_recommend ? 1 : 0)
 
   return request({
     url: '/videos',
@@ -39,6 +40,7 @@ export function updateVideo(id, data) {
   formData.append('cover_url', data.cover_url)
   formData.append('description', data.description || '')
   formData.append('status', data.status)
+  formData.append('is_recommend', data.is_recommend ? 1 : 0)
 
   return request({
     url: `/videos/${id}`,
@@ -64,6 +66,24 @@ export function updateVideoStatus(id, status) {
     url: `/videos/${id}/status`,
     method: 'post',
     data: formData
+  })
+}
+
+// 批量更新影片状态
+export function batchUpdateVideoStatus(ids, status) {
+  return request({
+    url: '/videos/batch-status',
+    method: 'post',
+    data: { ids, status }
+  })
+}
+
+// 批量删除影片
+export function batchDeleteVideos(ids) {
+  return request({
+    url: '/videos/batch-delete',
+    method: 'post',
+    data: { ids }
   })
 }
 

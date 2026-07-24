@@ -1,10 +1,32 @@
 <?php
+define('MAX_RECOMMEND_COUNT', 8);
+
+function countRecommendPublished($db, $excludeId = null) {
+    if ($excludeId) {
+        $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM video WHERE is_recommend = 1 AND status = 1 AND id != ?");
+        $stmt->execute([$excludeId]);
+    } else {
+        $stmt = $db->query("SELECT COUNT(*) as cnt FROM video WHERE is_recommend = 1 AND status = 1");
+    }
+    return intval($stmt->fetch()['cnt']);
+}
+
+function checkRecommendLimit($db, $isRecommend, $status, $excludeId = null) {
+    if (intval($isRecommend) === 1 && intval($status) === 1) {
+        $current = countRecommendPublished($db, $excludeId);
+        if ($current >= MAX_RECOMMEND_COUNT) {
+            error('推荐且上架的影片总数不得超过 ' . MAX_RECOMMEND_COUNT . ' 部，当前已有 ' . $current . ' 部');
+        }
+    }
+}
+
 // 获取影片列表（管理后台）
 function getVideoList() {
     $page = intval($_GET['page'] ?? 1);
     $pageSize = intval($_GET['page_size'] ?? 10);
     $status = $_GET['status'] ?? '';
     $keyword = $_GET['keyword'] ?? '';
+    $hasSource = $_GET['has_source'] ?? '';
 
     $page = max(1, $page);
     $pageSize = min(100, max(1, $pageSize));
@@ -13,43 +35,50 @@ function getVideoList() {
     try {
         $db = getDB();
 
-        // 构建查询条件
         $where = [];
         $params = [];
 
         if ($status !== '') {
-            $where[] = "status = ?";
+            $where[] = "v.status = ?";
             $params[] = $status;
         }
 
         if ($keyword !== '') {
-            $where[] = "title LIKE ?";
+            $where[] = "v.title LIKE ?";
             $params[] = "%{$keyword}%";
+        }
+
+        if ($hasSource === '1') {
+            $where[] = "sc.source_count > 0";
+        } elseif ($hasSource === '0') {
+            $where[] = "sc.source_count = 0";
         }
 
         $whereClause = empty($where) ? '' : 'WHERE ' . implode(' AND ', $where);
 
-        // 查询总数
-        $stmt = $db->prepare("SELECT COUNT(*) as total FROM video {$whereClause}");
+        $stmt = $db->prepare("SELECT COUNT(*) as total FROM video v LEFT JOIN (SELECT video_id, COUNT(*) as source_count FROM video_source GROUP BY video_id) sc ON v.id = sc.video_id {$whereClause}");
         $stmt->execute($params);
         $total = $stmt->fetch()['total'];
 
-        // 查询列表
         $stmt = $db->prepare("
-            SELECT id, title, cover_url, description, status,
-                   created_at, updated_at
-            FROM video
+            SELECT v.id, v.title, v.cover_url, v.description, v.status, v.is_recommend,
+                   v.created_at, v.updated_at,
+                   IFNULL(sc.source_count, 0) as source_count
+            FROM video v
+            LEFT JOIN (SELECT video_id, COUNT(*) as source_count FROM video_source GROUP BY video_id) sc ON v.id = sc.video_id
             {$whereClause}
-            ORDER BY id DESC
+            ORDER BY v.id DESC
             LIMIT {$offset}, {$pageSize}
         ");
         $stmt->execute($params);
         $list = $stmt->fetchAll();
 
-        // 格式化日期
         foreach ($list as &$item) {
             $item['created_at'] = formatDateTime($item['created_at']);
             $item['updated_at'] = formatDateTime($item['updated_at']);
+            $item['source_count'] = intval($item['source_count']);
+            $item['is_recommend'] = intval($item['is_recommend']);
+            $item['status'] = intval($item['status']);
         }
 
         success([
@@ -80,6 +109,8 @@ function getVideoDetail($id) {
 
         $video['created_at'] = formatDateTime($video['created_at']);
         $video['updated_at'] = formatDateTime($video['updated_at']);
+        $video['is_recommend'] = intval($video['is_recommend']);
+        $video['status'] = intval($video['status']);
 
         success($video);
 
@@ -94,33 +125,38 @@ function createVideo() {
     $coverUrl = $_POST['cover_url'] ?? '';
     $description = $_POST['description'] ?? '';
     $status = $_POST['status'] ?? 1;
+    $isRecommend = $_POST['is_recommend'] ?? 0;
 
-    // 验证必填
     validateRequired([
         'title' => '影片标题'
     ], ['title' => $title]);
 
-    // 验证长度
     validateLength($title, 1, 200, '影片标题');
 
-    // 验证描述长度
     if (!empty($description)) {
         validateLength($description, 0, 1000, '影片描述');
     }
 
-    // 验证状态值
     if (!in_array($status, [0, 1, '0', '1'])) {
         error('状态值必须为 0 或 1');
     }
-    $status = intval($status); // 统一转换为整数
+    $status = intval($status);
+
+    if (!in_array($isRecommend, [0, 1, '0', '1'])) {
+        error('推荐值必须为 0 或 1');
+    }
+    $isRecommend = intval($isRecommend);
 
     try {
         $db = getDB();
+
+        checkRecommendLimit($db, $isRecommend, $status);
+
         $stmt = $db->prepare("
-            INSERT INTO video (title, cover_url, description, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, NOW(), NOW())
+            INSERT INTO video (title, cover_url, description, status, is_recommend, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, NOW(), NOW())
         ");
-        $stmt->execute([$title, $coverUrl, $description, $status]);
+        $stmt->execute([$title, $coverUrl, $description, $status, $isRecommend]);
 
         $videoId = $db->lastInsertId();
 
@@ -139,44 +175,54 @@ function updateVideo($id) {
     $coverUrl = $_POST['cover_url'] ?? '';
     $description = $_POST['description'] ?? '';
     $status = $_POST['status'] ?? '';
+    $isRecommend = $_POST['is_recommend'] ?? '';
 
-    // 验证必填
     validateRequired([
         'title' => '影片标题',
         'status' => '状态'
     ], ['title' => $title, 'status' => $status]);
 
-    // 验证长度
     validateLength($title, 1, 200, '影片标题');
 
-    // 验证描述长度
     if (!empty($description)) {
         validateLength($description, 0, 1000, '影片描述');
     }
 
-    // 验证状态值
     if (!in_array($status, [0, 1, '0', '1'])) {
         error('状态值必须为 0 或 1');
     }
-    $status = intval($status); // 统一转换为整数
+    $status = intval($status);
+
+    if ($isRecommend !== '' && !in_array($isRecommend, [0, 1, '0', '1'])) {
+        error('推荐值必须为 0 或 1');
+    }
+    $isRecommend = $isRecommend !== '' ? intval($isRecommend) : null;
 
     try {
         $db = getDB();
 
-        // 检查影片是否存在
-        $stmt = $db->prepare("SELECT id FROM video WHERE id = ?");
+        $stmt = $db->prepare("SELECT id, is_recommend, status FROM video WHERE id = ?");
         $stmt->execute([$id]);
-        if (!$stmt->fetch()) {
+        $existing = $stmt->fetch();
+        if (!$existing) {
             error('影片不存在', 404);
         }
 
-        // 更新影片
+        $finalIsRecommend = $isRecommend !== null ? $isRecommend : intval($existing['is_recommend']);
+
+        if ($finalIsRecommend === 1 && $status === 1) {
+            $current = countRecommendPublished($db, $id);
+            if ($current >= MAX_RECOMMEND_COUNT) {
+                error('推荐且上架的影片总数不得超过 ' . MAX_RECOMMEND_COUNT . ' 部，当前已有 ' . $current . ' 部');
+            }
+        }
+
         $stmt = $db->prepare("
             UPDATE video
-            SET title = ?, cover_url = ?, description = ?, status = ?, updated_at = NOW()
+            SET title = ?, cover_url = ?, description = ?, status = ?, is_recommend = ?, updated_at = NOW()
             WHERE id = ?
         ");
-        $stmt->execute([$title, $coverUrl, $description, $status, $id]);
+        $stmt->execute([$title, $coverUrl, $description, $status, $finalIsRecommend, $id]);
 
         success(null, '更新成功');
 
@@ -192,31 +238,25 @@ function deleteVideo($id) {
     try {
         $db = getDB();
 
-        // 开启事务
         $db->beginTransaction();
 
         try {
-            // 检查影片是否存在
             $stmt = $db->prepare("SELECT id FROM video WHERE id = ?");
             $stmt->execute([$id]);
             if (!$stmt->fetch()) {
                 error('影片不存在', 404);
             }
 
-            // 删除播放源
             $stmt = $db->prepare("DELETE FROM video_source WHERE video_id = ?");
             $stmt->execute([$id]);
 
-            // 删除影片
             $stmt = $db->prepare("DELETE FROM video WHERE id = ?");
             $stmt->execute([$id]);
 
-            // 提交事务
             $db->commit();
 
             success(null, '删除成功');
         } catch (Exception $e) {
-            // 回滚事务
             $db->rollBack();
             throw $e;
         }
@@ -239,18 +279,25 @@ function updateVideoStatus($id) {
     if (!in_array($status, ['0', '1'])) {
         error('状态值不正确');
     }
+    $status = intval($status);
 
     try {
         $db = getDB();
 
-        // 检查影片是否存在
-        $stmt = $db->prepare("SELECT id FROM video WHERE id = ?");
+        $stmt = $db->prepare("SELECT id, is_recommend FROM video WHERE id = ?");
         $stmt->execute([$id]);
-        if (!$stmt->fetch()) {
+        $video = $stmt->fetch();
+        if (!$video) {
             error('影片不存在', 404);
         }
 
-        // 更新状态
+        if ($status === 1 && intval($video['is_recommend']) === 1) {
+            $current = countRecommendPublished($db, $id);
+            if ($current >= MAX_RECOMMEND_COUNT) {
+                error('推荐且上架的影片总数不得超过 ' . MAX_RECOMMEND_COUNT . ' 部，当前已有 ' . $current . ' 部');
+            }
+        }
+
         $stmt = $db->prepare("UPDATE video SET status = ?, updated_at = NOW() WHERE id = ?");
         $stmt->execute([$status, $id]);
 
@@ -261,28 +308,122 @@ function updateVideoStatus($id) {
     }
 }
 
+// 批量更新影片状态
+function batchUpdateStatus() {
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    $ids = $input['ids'] ?? [];
+    $status = $input['status'] ?? '';
+
+    if (empty($ids) || !is_array($ids)) {
+        error('请选择要操作的影片');
+    }
+
+    if (!in_array($status, ['0', '1'])) {
+        error('状态值不正确');
+    }
+    $status = intval($status);
+
+    foreach ($ids as $id) {
+        if (!is_numeric($id)) {
+            error('影片ID格式不正确');
+        }
+    }
+
+    try {
+        $db = getDB();
+
+        if ($status === 1) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM video WHERE is_recommend = 1 AND id IN ({$placeholders})");
+            $stmt->execute($ids);
+            $toPublishRecommended = intval($stmt->fetch()['cnt']);
+
+            $existingRecommended = countRecommendPublished($db);
+
+            $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM video WHERE is_recommend = 1 AND status = 1 AND id IN ({$placeholders})");
+            $stmt->execute($ids);
+            $alreadyPublishedRecommended = intval($stmt->fetch()['cnt']);
+
+            $newRecommended = $toPublishRecommended - $alreadyPublishedRecommended;
+            if ($existingRecommended + $newRecommended > MAX_RECOMMEND_COUNT) {
+                error('推荐且上架的影片总数不得超过 ' . MAX_RECOMMEND_COUNT . ' 部，本次操作将导致总数超限');
+            }
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        $stmt = $db->prepare("UPDATE video SET status = ?, updated_at = NOW() WHERE id IN ({$placeholders})");
+        $stmt->execute(array_merge([$status], $ids));
+
+        $action = $status === 1 ? '上架' : '下架';
+        success(['count' => count($ids)], "批量{$action}成功");
+
+    } catch (Exception $e) {
+        error('批量操作失败：' . $e->getMessage());
+    }
+}
+
+// 批量删除影片
+function batchDelete() {
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    $ids = $input['ids'] ?? [];
+
+    if (empty($ids) || !is_array($ids)) {
+        error('请选择要删除的影片');
+    }
+
+    foreach ($ids as $id) {
+        if (!is_numeric($id)) {
+            error('影片ID格式不正确');
+        }
+    }
+
+    try {
+        $db = getDB();
+
+        $db->beginTransaction();
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+            $stmt = $db->prepare("DELETE FROM video_source WHERE video_id IN ({$placeholders})");
+            $stmt->execute($ids);
+
+            $stmt = $db->prepare("DELETE FROM video WHERE id IN ({$placeholders})");
+            $stmt->execute($ids);
+
+            $db->commit();
+
+            success(['count' => count($ids)], '批量删除成功');
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+    } catch (Exception $e) {
+        error('批量删除失败：' . $e->getMessage());
+    }
+}
+
 // 处理影片请求
 function handleVideoRequest($path, $method) {
-    // 解析路径
     $parts = explode('/', $path);
 
     if ($method === 'GET' && $path === 'videos') {
-        // 获取列表
         getVideoList();
-    } elseif ($method === 'GET' && count($parts) === 2) {
-        // 获取详情
-        getVideoDetail($parts[1]);
     } elseif ($method === 'POST' && $path === 'videos') {
-        // 新增
         createVideo();
+    } elseif ($method === 'POST' && $path === 'videos/batch-status') {
+        batchUpdateStatus();
+    } elseif ($method === 'POST' && $path === 'videos/batch-delete') {
+        batchDelete();
+    } elseif ($method === 'GET' && count($parts) === 2) {
+        getVideoDetail($parts[1]);
     } elseif ($method === 'POST' && count($parts) === 2) {
-        // 更新
         updateVideo($parts[1]);
     } elseif ($method === 'DELETE' && count($parts) === 2) {
-        // 删除
         deleteVideo($parts[1]);
     } elseif ($method === 'POST' && count($parts) === 3 && $parts[2] === 'status') {
-        // 更新状态
         updateVideoStatus($parts[1]);
     } else {
         error('接口不存在', 404);
