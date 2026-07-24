@@ -1,6 +1,5 @@
 import request from '../utils/request'
 
-// 管理员登录
 export function login(data) {
   const formData = new FormData()
   formData.append('username', data.username)
@@ -13,7 +12,6 @@ export function login(data) {
   })
 }
 
-// 管理员退出
 export function logout() {
   return request({
     url: '/admin/logout',
@@ -21,7 +19,6 @@ export function logout() {
   })
 }
 
-// 获取影片列表
 export function getVideoList(params) {
   return request({
     url: '/videos',
@@ -30,7 +27,6 @@ export function getVideoList(params) {
   })
 }
 
-// 获取影片详情
 export function getVideoDetail(id) {
   return request({
     url: `/videos/${id}`,
@@ -38,13 +34,13 @@ export function getVideoDetail(id) {
   })
 }
 
-// 新增影片
 export function createVideo(data) {
   const formData = new FormData()
   formData.append('title', data.title)
   formData.append('cover_url', data.cover_url)
   formData.append('description', data.description || '')
   formData.append('status', data.status)
+  formData.append('is_recommended', data.is_recommended ? 1 : 0)
 
   return request({
     url: '/videos',
@@ -53,13 +49,13 @@ export function createVideo(data) {
   })
 }
 
-// 更新影片
 export function updateVideo(id, data) {
   const formData = new FormData()
   formData.append('title', data.title)
   formData.append('cover_url', data.cover_url)
   formData.append('description', data.description || '')
   formData.append('status', data.status)
+  formData.append('is_recommended', data.is_recommended ? 1 : 0)
 
   return request({
     url: `/videos/${id}`,
@@ -68,7 +64,6 @@ export function updateVideo(id, data) {
   })
 }
 
-// 删除影片
 export function deleteVideo(id) {
   return request({
     url: `/videos/${id}`,
@@ -76,7 +71,6 @@ export function deleteVideo(id) {
   })
 }
 
-// 更新影片状态
 export function updateVideoStatus(id, status) {
   const formData = new FormData()
   formData.append('status', status)
@@ -88,7 +82,36 @@ export function updateVideoStatus(id, status) {
   })
 }
 
-// 获取播放源列表
+export function batchUpdateVideoStatus(ids, status) {
+  const formData = new FormData()
+  formData.append('ids', JSON.stringify(ids))
+  formData.append('status', status)
+
+  return request({
+    url: '/videos/batch-status',
+    method: 'post',
+    data: formData
+  })
+}
+
+export function batchDeleteVideos(ids) {
+  const formData = new FormData()
+  formData.append('ids', JSON.stringify(ids))
+
+  return request({
+    url: '/videos/batch-delete',
+    method: 'post',
+    data: formData
+  })
+}
+
+export function getDashboardStats() {
+  return request({
+    url: '/videos/dashboard',
+    method: 'get'
+  })
+}
+
 export function getSourceList(videoId) {
   return request({
     url: '/sources',
@@ -97,7 +120,6 @@ export function getSourceList(videoId) {
   })
 }
 
-// 新增播放源
 export function createSource(data) {
   const formData = new FormData()
   formData.append('video_id', data.video_id)
@@ -111,7 +133,6 @@ export function createSource(data) {
   })
 }
 
-// 更新播放源
 export function updateSource(id, data) {
   const formData = new FormData()
   formData.append('source_name', data.source_name)
@@ -124,7 +145,6 @@ export function updateSource(id, data) {
   })
 }
 
-// 删除播放源
 export function deleteSource(id) {
   return request({
     url: `/sources/${id}`,
