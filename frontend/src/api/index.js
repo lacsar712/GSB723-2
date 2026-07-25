@@ -45,6 +45,7 @@ export function createVideo(data) {
   formData.append('cover_url', data.cover_url)
   formData.append('description', data.description || '')
   formData.append('status', data.status)
+  formData.append('is_recommend', data.is_recommend ? 1 : 0)
 
   return request({
     url: '/videos',
@@ -60,6 +61,7 @@ export function updateVideo(id, data) {
   formData.append('cover_url', data.cover_url)
   formData.append('description', data.description || '')
   formData.append('status', data.status)
+  formData.append('is_recommend', data.is_recommend ? 1 : 0)
 
   return request({
     url: `/videos/${id}`,
@@ -129,5 +131,56 @@ export function deleteSource(id) {
   return request({
     url: `/sources/${id}`,
     method: 'delete'
+  })
+}
+
+// 批量更新影片状态（批量上架 / 下架）
+export function batchUpdateVideoStatus(ids, status) {
+  const formData = new FormData()
+  formData.append('ids', ids.join(','))
+  formData.append('status', status)
+
+  return request({
+    url: '/videos/batch/status',
+    method: 'post',
+    data: formData
+  })
+}
+
+// 批量删除影片
+export function batchDeleteVideos(ids) {
+  const formData = new FormData()
+  formData.append('ids', ids.join(','))
+
+  return request({
+    url: '/videos/batch/delete',
+    method: 'post',
+    data: formData
+  })
+}
+
+// 仪表盘 - 统计数据
+export function getDashboardStats() {
+  return request({
+    url: '/dashboard/stats',
+    method: 'get'
+  })
+}
+
+// 仪表盘 - 最近更新影片
+export function getDashboardRecent(limit = 5) {
+  return request({
+    url: '/dashboard/recent',
+    method: 'get',
+    params: { limit }
+  })
+}
+
+// 仪表盘 - 推荐影片（推荐且已上架）
+export function getDashboardRecommend(limit = 8) {
+  return request({
+    url: '/dashboard/recommend',
+    method: 'get',
+    params: { limit }
   })
 }

@@ -32,9 +32,11 @@ CREATE TABLE IF NOT EXISTS video (
     cover_url VARCHAR(255) NOT NULL,
     description TEXT,
     status TINYINT NOT NULL DEFAULT 1 COMMENT '1上架 0下架',
+    is_recommend TINYINT NOT NULL DEFAULT 0 COMMENT '1推荐 0不推荐',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_status (status)
+    INDEX idx_status (status),
+    INDEX idx_recommend (is_recommend)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- 表4：video_source（播放源）
@@ -65,6 +67,9 @@ INSERT INTO video (title, cover_url, description, status, created_at, updated_at
 ('机械战警：重生', '/uploads/covers/test-cover-8.jpg', '一名被改造的机械战警在执行任务时发现了自己的人性，面临艰难的选择。', 1, NOW(), NOW()),
 ('平行世界', '/uploads/covers/test-cover-9.jpg', '物理学家意外打开了通往平行世界的大门，遇见了另一个自己。', 1, NOW(), NOW()),
 ('时间旅行者', '/uploads/covers/test-cover-10.jpg', '一位时间旅行者试图改变过去的悲剧，却发现每次改变都会带来意想不到的后果。', 1, NOW(), NOW());
+
+-- 标记部分已上架影片为推荐
+UPDATE video SET is_recommend = 1 WHERE id IN (1, 2, 4, 6);
 
 -- 插入播放源数据（m3u8链接）
 INSERT INTO video_source (video_id, source_name, m3u8_url, created_at) VALUES
