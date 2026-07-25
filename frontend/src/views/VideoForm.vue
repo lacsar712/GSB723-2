@@ -54,6 +54,17 @@
 					</el-radio-group>
 				</el-form-item>
 
+				<el-form-item label="设为推荐" prop="is_recommend">
+					<el-switch
+						v-model="form.is_recommend"
+						:active-value="1"
+						:inactive-value="0"
+						active-text="推荐"
+						inactive-text="不推荐"
+					/>
+					<div class="upload-tip">推荐且上架的影片会展示在首页，总数不超过 8 部</div>
+				</el-form-item>
+
 				<el-form-item>
 					<el-button type="primary" :loading="loading" @click="handleSubmit">
 						{{ isEdit ? '保存' : '提交' }}
@@ -94,6 +105,7 @@ const form = reactive({
 	cover_url: '',
 	description: '',
 	status: 1,
+	is_recommend: 0,
 })
 
 // 获取封面完整URL
@@ -157,10 +169,11 @@ const fetchDetail = async () => {
 	loading.value = true
 	try {
 		const res = await getVideoDetail(id)
-		// 确保 status 为数字类型，避免字符串 "1"/"0" 导致单选框不选中
-		const data = res.data
-		data.status = parseInt(data.status)
-		Object.assign(form, data)
+			// 确保 status 为数字类型，避免字符串 "1"/"0" 导致单选框不选中
+			const data = res.data
+			data.status = parseInt(data.status)
+			data.is_recommend = parseInt(data.is_recommend) || 0
+			Object.assign(form, data)
 	} catch (error) {
 		console.error('获取详情失败：', error)
 		ElMessage.error('获取影片信息失败')
